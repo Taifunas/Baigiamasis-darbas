@@ -47,6 +47,87 @@ class SkelbiuApp(QWidget, Ui_Form):
         self.back.clicked.connect(self.grizti_atgal)
         self.filter_button.clicked.connect(self.filtruoti_pagal_kaina)
         self.issaugoti_button.clicked.connect(self.issaugoti_i_csv)
+        self.next_page.clicked.connect(lambda: self.eiti_i_puslapi("next"))
+        self.page_back.clicked.connect(lambda: self.eiti_i_puslapi("prev"))
+        self.rusiavimas_dropdown.currentIndexChanged.connect(self.taikyti_rusiavima)
+
+    def taikyti_rusiavima(self):
+        try:
+            # Gauti pasirinktą "data-order" reikšmę
+            data_order = self.rusiavimas_dropdown.currentData()
+            if data_order is None or not self.driver:
+                return
+
+            # Ieškoti visų rūšiavimo <span> ir rasti atitinkamą
+            spanai = self.driver.find_elements(By.CSS_SELECTOR, "#orderByLinks span")
+
+            for span in spanai:
+                if span.get_attribute("data-order") == data_order:
+                    self.driver.execute_script("arguments[0].click();", span)
+                    break
+
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "extended-info"))
+            )
+            time.sleep(1)
+
+            soup = BeautifulSoup(self.driver.page_source, "html.parser")
+            self.atvaizduoti_skelbimus(soup)
+
+        except Exception as e:
+            QMessageBox.warning(self, "Klaida", f"Nepavyko taikyti rūšiavimo: {str(e)}")
+
+
+    def eiti_i_puslapi(self, kryptis="next"):
+        try:
+            selector = f"a.pagination_link[rel='{kryptis}']"
+            elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+
+            if not elements:
+                if kryptis == "next":
+                    QMessageBox.information(
+                        self, "Puslapio nėra", f"Nėra daugiau puslapių į šią pusę."
+                    )
+                    return
+                else:
+                    return
+
+            btn = elements[0]
+            self.driver.execute_script("arguments[0].click();", btn)
+
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "extended-info"))
+            )
+            time.sleep(1)
+
+            soup = BeautifulSoup(self.driver.page_source, "html.parser")
+            self.atvaizduoti_skelbimus(soup)
+            #self.atnaujinti_rusiavima(soup)
+
+        except Exception as e:
+            QMessageBox.information(
+                self, "Klaida", f"Klaida einant į puslapį '{kryptis}': {str(e)}"
+            )
+
+    def atnaujinti_rusiavima(self, soup):
+        try:
+            rikiavimas_blokas = soup.find("div", id="orderByLinks")
+            spanai = rikiavimas_blokas.find_all("span")
+
+            self.rusiavimas_dropdown.clear()  # Išvalyti prieš dedant naujus
+
+            for span in spanai:
+                tekstas = span.get_text(strip=True)
+                data_order = span.get("data-order")
+                if tekstas and data_order is not None:
+                    self.rusiavimas_dropdown.addItem(tekstas, data_order)
+
+            self.rusiavimas_dropdown.setDisabled(False)
+
+        except Exception as e:
+            print(f"Klaida atnaujinant rūšiavimą: {e}")
+            self.rusiavimas_dropdown.setDisabled(True)
+
 
     def patikrinti_nuoroda(self):
         url = self.url.text().strip()
@@ -97,6 +178,7 @@ class SkelbiuApp(QWidget, Ui_Form):
             return
 
         try:
+            self.driver.get(self.pagrindinis_url)
             paieskos_laukas = self.driver.find_element(By.ID, "searchKeyword")
             paieskos_laukas.clear()
             paieskos_laukas.send_keys(fraze)
@@ -124,6 +206,7 @@ class SkelbiuApp(QWidget, Ui_Form):
             QMessageBox.information(self, "Nėra", "Pagal paiešką nerasta kategorijų.")
             return
 
+        self.rusiavimas_dropdown.setDisabled(True)
         self.paskutinis_soup = soup
         self.categories_table.clear()
         self.categories_table.setColumnCount(1)
@@ -147,6 +230,10 @@ class SkelbiuApp(QWidget, Ui_Form):
             return
 
         href = item.data(1000)
+
+        if href is None:
+            return
+
         if not href.startswith("http"):
             href = self.pagrindinis_url.rstrip("/") + href
 
@@ -155,8 +242,10 @@ class SkelbiuApp(QWidget, Ui_Form):
             time.sleep(2)
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
             self.atvaizduoti_skelbimus(soup)
+            self.atnaujinti_rusiavima(soup)
         except Exception as e:
             QMessageBox.warning(self, "Klaida", f"Nepavyko atidaryti kategorijos: {str(e)}")
+
 
     def atvaizduoti_skelbimus(self, soup):
         self.categories_table.clear()
@@ -184,7 +273,6 @@ class SkelbiuApp(QWidget, Ui_Form):
             widget.setDisabled(False)
 
         self.atnaujinti_kainos_filtra_matomuma()
-        self.atnaujinti_maksimali_psl_info(soup)
 
     def filtruoti_pagal_kaina(self):
         if not self.driver:
@@ -215,10 +303,10 @@ class SkelbiuApp(QWidget, Ui_Form):
 
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
             self.atvaizduoti_skelbimus(soup)
+            self.atnaujinti_rusiavima(soup)
 
         except Exception as e:
             QMessageBox.critical(self, "Klaida", f"Nepavyko atlikti filtravimo: {str(e)}")
-
 
 
     def issaugoti_i_csv(self):
@@ -237,30 +325,12 @@ class SkelbiuApp(QWidget, Ui_Form):
 
         visi_skelbimai = []
         bendra_kainu_suma = 0.0
-        page = 1
 
         while len(visi_skelbimai) < max_skelbimu:
-            parsed_url = urlparse(self.driver.current_url)
-            parts = parsed_url.path.strip("/").split("/")
-
-            if parts[-1].isdigit():
-                parts[-1] = str(page)
-            else:
-                if len(parts) > 0 and parts[0] == "skelbimai":
-                    parts.insert(1, str(page))
-                else:
-                    parts.append(str(page))
-
-            new_path = "/" + "/".join(parts)
-            new_url = urlunparse(parsed_url._replace(path=new_path))
-
             try:
-                self.driver.get(new_url)
                 WebDriverWait(self.driver, 10).until(
                     EC.presence_of_element_located((By.CLASS_NAME, "extended-info"))
                 )
-                time.sleep(1)
-
                 soup = BeautifulSoup(self.driver.page_source, "html.parser")
                 skelbimu_blokai = soup.find_all("div", class_="extended-info")
 
@@ -285,11 +355,17 @@ class SkelbiuApp(QWidget, Ui_Form):
                     except:
                         pass
 
-            except Exception as e:
-                QMessageBox.warning(self, "Klaida", f"Nepavyko atidaryti puslapio {page}: {str(e)}")
-                break
+                if len(visi_skelbimai) < max_skelbimu:
+                    try:
+                        next_btn = self.driver.find_element(By.CSS_SELECTOR, "a.pagination_link[rel='next']")
+                        self.driver.execute_script("arguments[0].click();", next_btn)
+                        time.sleep(1)
+                    except Exception:
+                        break  # Jei nėra daugiau puslapių – sustojam
 
-            page += 1
+            except Exception as e:
+                QMessageBox.warning(self, "Klaida", f"Klaida puslapyje: {str(e)}")
+                break
 
         if not visi_skelbimai:
             QMessageBox.information(self, "Nėra duomenų", "Nėra skelbimų, kuriuos būtų galima išsaugoti.")
@@ -301,17 +377,22 @@ class SkelbiuApp(QWidget, Ui_Form):
                 writer.writerow(["Pavadinimas", "Kaina"])
                 writer.writerows(visi_skelbimai)
 
+            papildoma_info = ""
+            if len(visi_skelbimai) < max_skelbimu:
+                papildoma_info = (
+                    f"\n⚠️ Įvestas kiekis ({max_skelbimu}) viršijo rastų skelbimų skaičių.\n"
+                    f"Išsaugota tik {len(visi_skelbimai)} skelbimų."
+                )
+
             QMessageBox.information(
                 self,
                 "Išsaugota",
                 f"Išsaugota {len(visi_skelbimai)} skelbimų į skelbimai.csv\n"
-                f"Bendra skelbimų vertė: {bendra_kainu_suma:.2f} €"
+                f"Bendra skelbimų vertė: {bendra_kainu_suma:.2f} €{papildoma_info}"
             )
 
         except Exception as e:
             QMessageBox.critical(self, "Klaida", f"Nepavyko išsaugoti CSV: {str(e)}")
-
-
 
 
 
@@ -329,32 +410,9 @@ class SkelbiuApp(QWidget, Ui_Form):
         for widget in [
             self.min_price, self.max_price,
             self.min_price_label, self.max_price_label,
-            self.filter_button
+            self.filter_button, self.issaugoti_button, self.max_page, self.psl_skaicius, self.next_page, self.page_back, self.rusiavimas_dropdown
         ]:
             widget.setDisabled(not rodyti_filtra)
-
-
-    def atnaujinti_maksimali_psl_info(self, soup):
-        try:
-            puslapiai = soup.find_all("a", class_="pagination_link")
-            skaiciai = []
-
-            for a in puslapiai:
-                try:
-                    skaicius = int(a.text.strip())
-                    skaiciai.append(skaicius)
-                except:
-                    continue
-
-            if skaiciai:
-                max_skaicius = max(skaiciai)
-                self.psl_skaicius.setText(f"Maks. puslapių: {max_skaicius}")
-            else:
-                self.psl_skaicius.setText("Puslapių skaičius nerastas")
-
-        except Exception as e:
-            print(f"Klaida nustatant puslapių skaičių: {e}")
-            self.psl_skaicius.setText("Klaida nuskaitant puslapius")
 
     def closeEvent(self, event):
         if self.driver:

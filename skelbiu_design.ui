@@ -75,14 +75,39 @@
    <item>
     <layout class="QVBoxLayout" name="layout_table">
      <item>
-      <widget class="QTableWidget" name="categories_table"/>
+      <widget class="QTableWidget" name="categories_table">
+       <attribute name="horizontalHeaderCascadingSectionResizes">
+        <bool>true</bool>
+       </attribute>
+       <attribute name="horizontalHeaderDefaultSectionSize">
+        <number>350</number>
+       </attribute>
+      </widget>
      </item>
      <item>
-      <widget class="QPushButton" name="back">
-       <property name="text">
-        <string>Atgal</string>
-       </property>
-      </widget>
+      <layout class="QHBoxLayout" name="layout_pages">
+       <item>
+        <widget class="QPushButton" name="page_back">
+         <property name="text">
+          <string>&lt;</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="next_page">
+         <property name="text">
+          <string>&gt;</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="back">
+         <property name="text">
+          <string>Grįžti į kategorijų pasirinkimą</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
      </item>
     </layout>
    </item>
@@ -113,6 +138,16 @@
       <widget class="QLineEdit" name="max_price">
        <property name="text">
         <string/>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="rusiavimas_dropdown">
+       <property name="minimumSize">
+        <size>
+         <width>200</width>
+         <height>0</height>
+        </size>
        </property>
       </widget>
      </item>
